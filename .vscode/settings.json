@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "core": "cpp",
-        "iterator": "cpp"
+        "iterator": "cpp",
+        "random": "cpp"
     }
 }

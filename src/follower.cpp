@@ -214,7 +214,7 @@ ReferenceTrajectory FollowerController::createReferenceTrajectory() {
       trajectory.positions.push_back(point_1);
       trajectory.headings.push_back(heading_1);   
 
-      Eigen::Vector3d basic_position = leader_predicted_position + position_offset;      
+      Eigen::Vector3d basic_position = leader_predicted_position + position_offset*1.3;      
       Eigen::Vector3d distance = leader_predicted_position - follower_position_tracker;
       Eigen::Vector2d distance_2d;
       distance_2d << leader_predicted_position[0] - follower_position_tracker[0], leader_predicted_position[1] - follower_position_tracker[1];
@@ -226,12 +226,10 @@ ReferenceTrajectory FollowerController::createReferenceTrajectory() {
 
       Eigen::Vector2d unit_distance = distance_2d / distance_2d.norm();
 
-
       Eigen::Matrix2d R;
       R << cos(b), -sin(b),
            sin(b), cos(b);
-      Eigen::Rotation2Df t(b);
-      Eigen::Vector2d position_per_2d = R * unit_distance * distance_per;
+      Eigen::Vector2d position_per_2d = R * unit_distance;
       Eigen::Vector3d position_per;
       position_per << position_per_2d[0], position_per_2d[1], 3.0;
 
@@ -241,22 +239,36 @@ ReferenceTrajectory FollowerController::createReferenceTrajectory() {
       direction << leader_predicted_position[0]+leader_predicted_velocity[0] - follower_position_tracker[0], leader_predicted_position[1]+leader_predicted_velocity[1] - follower_position_tracker[1];
       double dot = direction.dot(unit);
       double det = direction[0] * unit[1] - direction[1]*unit[0];
-      heading_2 = std::atan2(det, dot);          
+      heading_2 = -std::atan2(det, dot);          
 
       // Retreating
-      if (distance_error < -tolerance_factor + 0.1*leader_predicted_velocity.norm()) {
-        for (int i = 0; i < 100; i++) {
-          Eigen::Vector3d temp;
-          temp = basic_position - (control_action_interval * i/5.0 ) * (distance);
+      if (distance_error < -tolerance_factor) {
+        for (int i = 0; i < 200; i++) {
+          Eigen::Vector3d temp;          
+          temp = basic_position - (control_action_interval * i ) * (distance / distance.norm());
+          temp[2] = 3.0;
           trajectory.positions.push_back(temp); 
           trajectory.headings.push_back(heading_2);
         }
+      
       }
+      /* else if (distance_error < 0) {
+          for (int i = 0; i < 100; i++) {
+            Eigen::Vector3d temp;        
+            Eigen::Vector3d temp2;
+            temp2 << position_per[1], position_per[0], 3.0;       
+            temp = basic_position + (control_action_interval * i ) * temp;
+            temp[2] = 3.0;
+            trajectory.positions.push_back(temp); 
+            trajectory.headings.push_back(heading_2);   
+          }   
+      }*/
       // Following 
       else {
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 100; i++) {
           Eigen::Vector3d temp;        
-          temp = basic_position + (control_action_interval * i/5.0 ) * position_per;
+          temp = basic_position + (control_action_interval * i / leader_predicted_velocity.norm() ) * position_per;
+          temp[2] = 3.0;
           trajectory.positions.push_back(temp);
           trajectory.headings.push_back(heading_2);
         }   
