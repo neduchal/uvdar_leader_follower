@@ -205,34 +205,70 @@ ReferenceTrajectory FollowerController::createReferenceTrajectory() {
 
 
   trajectory.use_for_control = false;
+  double tolerance_factor = 0.25;
 
-  int k = 5;
   if (use_trajectory_reference) {
     if (use_estimator) {
       point_1   = follower_position_tracker;
       heading_1 = follower_heading_tracker;
+      trajectory.positions.push_back(point_1);
+      trajectory.headings.push_back(heading_1);   
 
-      Eigen::Vector3d distance = (leader_predicted_position - follower_position_tracker);
+      Eigen::Vector3d basic_position = leader_predicted_position + position_offset;      
+      Eigen::Vector3d distance = leader_predicted_position - follower_position_tracker;
+      Eigen::Vector2d distance_2d;
+      distance_2d << leader_predicted_position[0] - follower_position_tracker[0], leader_predicted_position[1] - follower_position_tracker[1];
+      Eigen::Vector2d position_offset_2d;
+      position_offset_2d << position_offset[0], position_offset[1];
+      double distance_error = (distance_2d.norm() - position_offset_2d.norm());
+      double b = acos(position_offset_2d.norm() / distance_2d.norm());
+      double distance_per = sqrt(distance_2d.norm()*distance_2d.norm() - position_offset_2d.norm()*position_offset_2d.norm());
 
-      point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm() * k * control_action_interval * (distance - position_offset) - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
+      Eigen::Vector2d unit_distance = distance_2d / distance_2d.norm();
 
-      if (distance.norm() > position_offset.norm()) {
-        point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm() * 3 * k * control_action_interval * ((leader_predicted_position - follower_position_tracker) - position_offset)  - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
-      }
-    
-      
+
+      Eigen::Matrix2d R;
+      R << cos(b), -sin(b),
+           sin(b), cos(b);
+      Eigen::Rotation2Df t(b);
+      Eigen::Vector2d position_per_2d = R * unit_distance * distance_per;
+      Eigen::Vector3d position_per;
+      position_per << position_per_2d[0], position_per_2d[1], 3.0;
+
       Eigen::Vector2d unit;
       unit << 1.0 , 0.0;
       Eigen::Vector2d direction;
       direction << leader_predicted_position[0]+leader_predicted_velocity[0] - follower_position_tracker[0], leader_predicted_position[1]+leader_predicted_velocity[1] - follower_position_tracker[1];
       double dot = direction.dot(unit);
       double det = direction[0] * unit[1] - direction[1]*unit[0];
-      heading_2 = std::atan2(det, dot);
+      heading_2 = std::atan2(det, dot);          
 
-      trajectory.positions.push_back(point_1);
-      trajectory.positions.push_back(point_2);  
-      trajectory.headings.push_back(heading_1);
-      trajectory.headings.push_back(heading_2);
+      // Retreating
+      if (distance_error < -tolerance_factor + 0.1*leader_predicted_velocity.norm()) {
+        for (int i = 0; i < 100; i++) {
+          Eigen::Vector3d temp;
+          temp = basic_position - (control_action_interval * i/5.0 ) * (distance);
+          trajectory.positions.push_back(temp); 
+          trajectory.headings.push_back(heading_2);
+        }
+      }
+      // Following 
+      else {
+        for (int i = 0; i < 50; i++) {
+          Eigen::Vector3d temp;        
+          temp = basic_position + (control_action_interval * i/5.0 ) * position_per;
+          trajectory.positions.push_back(temp);
+          trajectory.headings.push_back(heading_2);
+        }   
+      }
+
+
+      //point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm()  * control_action_interval * (distance - position_offset) - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
+
+      //if (distance.norm() > position_offset.norm()) {
+      //  point_2   = basic_position + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm() * control_action_interval * ((leader_predicted_position - follower_position_tracker) - position_offset)  - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
+      //}
+  
       trajectory.sampling_time   = control_action_interval;
       trajectory.use_for_control = true;
     } else {
