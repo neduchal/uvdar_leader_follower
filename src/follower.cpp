@@ -52,6 +52,8 @@ uvdar_leader_follower::FollowerConfig FollowerController::initialize(mrs_lib::Pa
   param_loader.loadParam("desired_offset/y", position_offset.y());
   param_loader.loadParam("desired_offset/z", position_offset.z());
   param_loader.loadParam("heading_offset", heading_offset);
+  param_loader.loadParam("use_estimator", use_estimator);
+  param_loader.loadParam("use_trajectory_reference", use_trajectory_reference);
 
   //// initialize the dynamic reconfigurables with values from YAML file and values set above
   uvdar_leader_follower::FollowerConfig config;
@@ -88,6 +90,7 @@ void FollowerController::dynamicReconfigureCallback(uvdar_leader_follower::Follo
     ROS_INFO("[%s]: Estimator started", ros::this_node::getName().c_str());
   }
   use_estimator = config.filter_data;
+
 }
 //}
 
@@ -200,18 +203,34 @@ ReferenceTrajectory FollowerController::createReferenceTrajectory() {
   Eigen::Vector3d point_2;
   double          heading_2;
 
+
   trajectory.use_for_control = false;
+
+  int k = 5;
   if (use_trajectory_reference) {
     if (use_estimator) {
       point_1   = follower_position_tracker;
       heading_1 = follower_heading_tracker;
 
-      point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval);
-      heading_2 = heading_offset;
+      Eigen::Vector3d distance = (leader_predicted_position - follower_position_tracker);
+
+      point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm() * k * control_action_interval * (distance - position_offset) - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
+
+      if (distance.norm() > position_offset.norm()) {
+        point_2   = leader_predicted_position + position_offset + (leader_predicted_velocity * control_action_interval) + leader_predicted_velocity.norm() * 3 * k * control_action_interval * ((leader_predicted_position - follower_position_tracker) - position_offset)  - 0.1 * (leader_predicted_velocity - follower_linear_velocity_tracker);
+      }
+    
+      
+      Eigen::Vector2d unit;
+      unit << 1.0 , 0.0;
+      Eigen::Vector2d direction;
+      direction << leader_predicted_position[0]+leader_predicted_velocity[0] - follower_position_tracker[0], leader_predicted_position[1]+leader_predicted_velocity[1] - follower_position_tracker[1];
+      double dot = direction.dot(unit);
+      double det = direction[0] * unit[1] - direction[1]*unit[0];
+      heading_2 = std::atan2(det, dot);
 
       trajectory.positions.push_back(point_1);
-      trajectory.positions.push_back(point_2);
-
+      trajectory.positions.push_back(point_2);  
       trajectory.headings.push_back(heading_1);
       trajectory.headings.push_back(heading_2);
       trajectory.sampling_time   = control_action_interval;
